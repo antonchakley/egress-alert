@@ -1,0 +1,33 @@
+#!/bin/sh
+# Settings come from the systemd unit (Environment=), with defaults here
+: "${IFACE:=ens4}" "${LIMIT:=190}" "${MAILTO:=root}" "${HOST:=$(hostname)}"
+TABLE=egress_block
+
+vnstat -i "$IFACE" --alert 0 3 m tx "$LIMIT" GiB
+rc=$?
+
+if [ "$rc" -eq 1 ]; then
+    # Over the limit: if not already blocked, send mail first, then block
+    if ! nft list table inet "$TABLE" >/dev/null 2>&1; then
+        printf 'To: %s\nSubject: Egress limit reached on %s - outbound blocked\n\nMonthly egress on %s is over %s GiB.\nOutbound internet traffic is blocked until next month.\n' \
+            "$MAILTO" "$HOST" "$HOST" "$LIMIT" | msmtp "$MAILTO"
+        nft -f - <<EOF
+table inet $TABLE {
+    chain out {
+        type filter hook output priority 0; policy drop;
+        oifname "lo" accept
+        ip daddr 169.254.169.254 accept     # GCP metadata, DNS, DHCP
+        udp dport 67 accept                 # DHCP renewals
+        ip daddr 35.235.240.0/20 accept     # IAP (SSH keeps working)
+        ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } accept  # internal VPC
+        tcp sport 22 accept                 # replies from SSH server: allow incoming SSH from anywhere
+    }
+}
+EOF
+    fi
+elif [ "$rc" -eq 0 ]; then
+    # Under the limit (e.g. new month): remove the block if it exists
+    nft delete table inet "$TABLE" 2>/dev/null || true
+else
+    exit "$rc"   # vnstat error: let systemd show the service as failed
+fi

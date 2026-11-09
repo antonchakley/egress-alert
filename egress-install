@@ -1,0 +1,14 @@
+#!/bin/sh
+# Install the egress monitor: script, systemd service and timer.
+set -e
+
+DEBIAN_FRONTEND=noninteractive apt-get install -y vnstat nftables
+
+systemctl enable --now vnstat
+
+install -m 755 egress-check /usr/local/sbin/egress-check
+install -m 644 egress-alert.service egress-alert.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now egress-alert.timer
+
+systemctl list-timers egress-alert.timer --no-pager

@@ -1,0 +1,12 @@
+[Unit]
+Description=Block outbound traffic when monthly egress exceeds limit
+After=vnstat.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=MAILTO=you@example.com
+Environment=IFACE=ens4
+Environment=LIMIT=190
+Environment=HOST=%H
+ExecStart=/usr/local/sbin/egress-check
